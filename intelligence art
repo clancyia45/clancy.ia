@@ -1,0 +1,213 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MonIA - Mon assistant intelligent</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;background:#101114;color:white;
+  font-family:Arial,sans-serif;height:100vh;
+  display:flex;overflow:hidden
+}
+.sidebar{
+  width:250px;background:#191a20;padding:20px;
+  display:flex;flex-direction:column
+}
+.logo{font-size:25px;color:#8295ff;font-weight:bold;margin-bottom:25px}
+button{cursor:pointer}
+.new{
+  background:#30323c;color:white;padding:13px;
+  border:1px solid #454753;border-radius:10px
+}
+#history{overflow:auto;margin-top:20px}
+.item{padding:12px;background:#252730;border-radius:8px;
+  margin-bottom:8px;cursor:pointer;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+header{padding:20px;border-bottom:1px solid #30313a}
+#chat{
+  flex:1;overflow-y:auto;padding:25px;
+  display:flex;flex-direction:column;gap:18px
+}
+.message{
+  max-width:750px;padding:15px;border-radius:14px;
+  white-space:pre-wrap;line-height:1.6;overflow-wrap:anywhere
+}
+.user{align-self:flex-end;background:#4059b5}
+.bot{align-self:flex-start;background:#292b34}
+.welcome{margin:auto;text-align:center;color:#aaa}
+.welcome h1{color:white;font-size:36px}
+form{display:flex;gap:10px;padding:20px;max-width:850px;width:100%;margin:auto}
+input{
+  flex:1;min-width:0;padding:16px;border-radius:12px;
+  background:#272932;border:1px solid #454753;color:white;font-size:16px
+}
+#send{background:#7088ff;color:white;border:0;border-radius:12px;padding:0 22px}
+#send:disabled{opacity:.5}
+@media(max-width:600px){
+  .sidebar{width:65px;padding:10px}
+  .logo{font-size:15px}
+  .new{font-size:0}
+  .new:after{content:"+";font-size:22px}
+  #history{display:none}
+  #chat{padding:12px}
+}
+</style>
+</head>
+
+<body>
+
+<aside class="sidebar">
+  <div class="logo">🤖 MonIA</div>
+  <button class="new" onclick="newChat()">+ Nouvelle discussion</button>
+  <div id="history"></div>
+</aside>
+
+<main class="main">
+<header>MonIA · Assistant intelligent</header>
+
+<div id="chat">
+  <div class="welcome">
+    <h1>Bonjour 👋</h1>
+    <p>Je suis MonIA, ton assistant personnel !</p>
+  </div>
+</div>
+
+<form id="form">
+  <input id="question" placeholder="Écris ton message..." required>
+  <button id="send">Envoyer</button>
+</form>
+</main>
+
+<script>
+const API_URL = "/api/chat";
+
+let messages = [];
+let conversations = JSON.parse(
+  localStorage.getItem("monia") || "[]"
+);
+let currentId = Date.now();
+let busy = false;
+
+const chat = document.getElementById("chat");
+const input = document.getElementById("question");
+const historyBox = document.getElementById("history");
+const send = document.getElementById("send");
+
+function save(){
+  localStorage.setItem("monia",JSON.stringify(conversations));
+}
+
+function display(text,role){
+  const div=document.createElement("div");
+  div.className="message "+role;
+  div.textContent=text;
+  chat.appendChild(div);
+  chat.scrollTop=chat.scrollHeight;
+  return div;
+}
+
+function renderHistory(){
+  historyBox.replaceChildren();
+
+  conversations.forEach(c=>{
+    const div=document.createElement("div");
+    div.className="item";
+    div.textContent=c.title;
+    div.onclick=()=>openChat(c.id);
+    historyBox.appendChild(div);
+  });
+}
+
+function newChat(){
+  currentId=Date.now();
+  messages=[];
+  chat.replaceChildren();
+
+  const welcome=document.createElement("div");
+  welcome.className="welcome";
+  welcome.innerHTML="<h1>Bonjour 👋</h1><p>Que veux-tu faire aujourd'hui ?</p>";
+  chat.appendChild(welcome);
+}
+
+function openChat(id){
+  const c=conversations.find(x=>x.id===id);
+  if(!c)return;
+
+  currentId=id;
+  messages=[...c.messages];
+  chat.replaceChildren();
+
+  messages.forEach(m=>{
+    display(m.content,m.role==="user"?"user":"bot");
+  });
+}
+
+function updateHistory(){
+  let c=conversations.find(x=>x.id===currentId);
+
+  if(!c){
+    c={
+      id:currentId,
+      title:messages.find(m=>m.role==="user")?.content.slice(0,30)||"Discussion",
+      messages:[]
+    };
+    conversations.unshift(c);
+  }
+
+  c.messages=[...messages];
+  save();
+  renderHistory();
+}
+
+document.getElementById("form").addEventListener("submit",async e=>{
+  e.preventDefault();
+
+  const question=input.value.trim();
+  if(!question||busy)return;
+
+  busy=true;
+  send.disabled=true;
+
+  chat.querySelector(".welcome")?.remove();
+
+  messages.push({role:"user",content:question});
+  display(question,"user");
+  input.value="";
+
+  const loading=display("MonIA réfléchit...","bot");
+
+  try{
+    const response=await fetch(API_URL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({messages:messages.slice(-20)})
+    });
+
+    const data=await response.json();
+
+    if(!response.ok)throw new Error(data.error||"Erreur serveur");
+
+    loading.textContent=data.answer;
+
+    messages.push({role:"assistant",content:data.answer});
+    updateHistory();
+
+  }catch(error){
+    loading.textContent="Erreur : "+error.message;
+  }
+
+  busy=false;
+  send.disabled=false;
+  input.focus();
+});
+
+renderHistory();
+</script>
+
+</body>
+</html>
